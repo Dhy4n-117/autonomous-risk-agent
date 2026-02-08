@@ -1,45 +1,376 @@
-version: '3.8'
-
-services:
-  # 1. The Orchestrator
-  n8n:
-    image: docker.n8n.io/n8nio/n8n
-    ports:
-      - "5678:5678"
-    environment:
-      - N8N_HOST=localhost
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://localhost:5678/
-      - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
-      - DB_POSTGRESDB_USER=${POSTGRES_USER}
-      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
-    volumes:
-      - n8n_data:/home/node/.n8n
-    depends_on:
-      - postgres
-
-  # 2. The Database
-  postgres:
-    image: postgres:16
-    ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  # 3. The Scraper
-  browserless:
-    image: browserless/chrome:latest
-    ports:
-      - "3000:3000"
-    environment:
-      - MAX_CONCURRENT_SESSIONS=10
-
-volumes:
-  n8n_data:
-  postgres_data:
+{
+  "name": "Vendor Risk",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -80
+      ],
+      "id": "8bc5ee3e-5904-423a-808a-efb88436d1b8",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM vendors;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        -80
+      ],
+      "id": "143dd049-46e8-4d83-91fb-3f6b26bca398",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "lHrL88yRmqSNtOFM",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": true
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        448,
+        -80
+      ],
+      "id": "4b621dfc-ec7e-4cd3-a81a-753a12a6e959",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "url": "=https://news.google.com/rss/search?q={{ $('Loop Over Items').item.json.name }}+security+breach+outage",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        -80
+      ],
+      "id": "f521dbf9-4d2e-4182-b877-81361888e3cf",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        896,
+        -80
+      ],
+      "id": "2eea0234-c39a-4182-8d65-98ba0d2b7318",
+      "name": "XML"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1192,
+        144
+      ],
+      "id": "69ed0200-e57f-49fb-b94f-7a01a3c8db79",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "ipHCsIcbBfTwB87G",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze the data.",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "=You are a Cyber Threat Analyst. Today's Date: February 8, 2026.  Analyze these news headlines for the vendor. Ignore anything older than 6 months from today. Flag ONLY confirmed security breaches, active lawsuits, or major outages.  NEWS DATA: {{ $json.rss.channel.item }}  Return Valid JSON ONLY: {   \"risk_detected\": boolean,   \"risk_summary\": \"One sentence summary (or 'None')\",   \"score\": number (0-10) }"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1120,
+        -80
+      ],
+      "id": "b3b05ac1-8f96-47eb-840b-b5412baed966",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Get the AI's raw text response\nconst aiText = items[0].json.text || '';\n\n// 2. Get the Vendor Details (using n8n's referencing syntax)\n// We look back at the 'Loop Over Items' node\nconst vendorContext = $('Loop Over Items').item.json;\n\n// 3. Clean the text (Remove ```json markdown)\nconst cleanText = aiText.replace(/```json/g, \"\").replace(/```/g, \"\").trim();\n\n// 4. Parse JSON\nlet riskData = {};\ntry {\n  riskData = JSON.parse(cleanText);\n} catch (error) {\n  riskData = { risk_detected: false, score: 0, risk_summary: \"Error parsing AI\" };\n}\n\n// 5. Apply Business Logic\nlet finalScore = riskData.score || 0;\n\n// Multiplier: If vendor is \"Critical\", boost score by 20%\nif (vendorContext.criticality_level === 'Critical') {\n  finalScore = finalScore * 1.2;\n}\n\n// 6. Decide to Alert\nlet shouldAlert = false;\nif (finalScore >= 7.0 && riskData.risk_detected) {\n  shouldAlert = true;\n}\n\n// 7. Return structured data\nreturn {\n  json: {\n    vendor: vendorContext.name,\n    alert: shouldAlert,\n    final_score: Math.round(finalScore * 10) / 10, // Round to 1 decimal\n    summary: riskData.risk_summary\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -80
+      ],
+      "id": "2de05177-455b-47e8-a563-d26ddd049649",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "eaf34747-31b0-499f-89f9-e0cb20c2986f",
+              "leftValue": "={{ $json.alert }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1696,
+        -80
+      ],
+      "id": "f1fd1c90-5cbc-4ff1-b6cc-65b9114a7bf2",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1Oe6tX5UaR-xnI6B5AL_zMdZpeZt0gqdBFh1-Oddm1lM",
+          "mode": "list",
+          "cachedResultName": "Vendor Risk Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $now }}",
+            "Vendor Name": "={{ $json.vendor }}",
+            "Risk Score": "={{ $json.final_score }}",
+            "Summary": "={{ $json.summary }}",
+            "Alert Status": "={{ $json.alert }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Vendor Name",
+              "displayName": "Vendor Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Risk Score",
+              "displayName": "Risk Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Alert Status",
+              "displayName": "Alert Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1920,
+        -80
+      ],
+      "id": "fe0a0aa6-4d02-49d3-9974-d9000741a68b",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "JPKo9O2hDqpwEOAo",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "XML": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "a0a84bf0-080d-48df-af3b-4491fe933c3f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "df8aa0f56f11ab474b75d80f9d9b99685294242ca5bb534de9cbebf9a689d57c"
+  },
+  "id": "bE_qZNonIfBXCs6hAWYTL",
+  "tags": []
+}
