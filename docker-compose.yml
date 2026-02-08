@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # 1. The Orchestrator
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_USER=n8n
+      - DB_POSTGRESDB_PASSWORD=your_password
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - postgres
+
+  # 2. The Database (Stores n8n data AND your Project Data)
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=n8n
+      - POSTGRES_PASSWORD=your_password
+      - POSTGRES_DB=n8n
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 3. The Scraper (Headless Chrome)
+  browserless:
+    image: browserless/chrome:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - MAX_CONCURRENT_SESSIONS=10
+
+volumes:
+  n8n_data:
+  postgres_data:
