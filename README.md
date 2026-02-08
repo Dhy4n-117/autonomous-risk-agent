@@ -1,14 +1,14 @@
-# Autonomous Vendor Risk Intelligence Agent 🛡️
+# Autonomous Vendor TPRM Intelligence Agent 
 
 ![Status](https://img.shields.io/badge/Status-Active-success)
 ![Tech](https://img.shields.io/badge/Tech-n8n%20|%20Docker%20|%20Gemini%20AI-blue)
 
-## 🚀 Overview
+## Overview
 A self-hosted, autonomous AI agent that automates **Third-Party Risk Management (TPRM)**. It monitors critical vendors 24/7, ingesting real-time news to detect security breaches, outages, and legal threats before they hit the mainstream news.
 
 Unlike static monitoring tools, this agent uses **Google Gemini 2.0 Flash** to semantically understand news headlines, filtering out marketing noise and assigning a dynamic **Risk Score (0-10)** based on severity and internal vendor criticality.
 
-## 🏗️ Architecture
+## Architecture
 The system runs as a containerized microservice stack:
 
 * **Orchestrator:** [n8n](https://n8n.io/) (Self-hosted via Docker)
@@ -17,7 +17,7 @@ The system runs as a containerized microservice stack:
 * **Ingestion:** RSS/XML Feeds (Real-time data gathering)
 * **Audit Trail:** Google Sheets API (Logging & Reporting)
 
-## 🧠 Workflow Logic
+## Workflow Logic
 1.  **Database Lookup:** Fetches active vendors and their "Criticality" status (Critical/High/Low) from PostgreSQL.
 2.  **News Scraper:** Queries Google News RSS for real-time headlines related to security breaches.
 3.  **AI Analysis:** Passes headlines to **Gemini**, which acts as a Cyber Threat Analyst to:
